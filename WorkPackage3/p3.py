@@ -12,6 +12,7 @@ compareValue = 0
 sleepTime = 0
 guessVal = 0
 totalGuesses = 0
+loadedScores = []
 
 # DEFINE THE PINS USED HERE
 LED_value = [11, 13, 15]
@@ -41,6 +42,8 @@ def menu():
     global value
     option = input("Select an option:   H - View High Scores     P - Play Game       Q - Quit\n")
     option = option.upper()
+
+  
     if option == "H":
         os.system('clear')
         print("HIGH SCORES!!")
@@ -65,7 +68,10 @@ def menu():
 
 def display_scores(count, raw_data):
     # print the scores to the screen in the expected format
-    print("There are {} scores. Here are the top 3!".format(count))
+    print("There are", count, " scores. Here are the top 3!")
+    for i in range(3):
+        print(i,"-", raw_data[i][0] + raw_data[i][1] + raw_data[i][2], "took" ,raw_data[i][3] , "guesses")
+
     # print out the scores in the required format
     pass
 
@@ -106,20 +112,52 @@ def fetch_scores():
     # get however many scores there are
     score_count = None
     # Get the scores
-    
+    i = 1
+    scores = []
+    score_count = eeprom.read_block(0,1)[0]
+    while eeprom.read_block(i,4) != [0,0,0,0]:
+        scores.append(eeprom.read_block(i,4))
+        i += 1
     # convert the codes back to ascii
-    
+    for i in range(len(scores)):
+        scores[i][0] = chr(scores[i][0])
+        scores[i][1] = chr(scores[i][1])
+        scores[i][2] = chr(scores[i][2])
     # return back the results
     return score_count, scores
 
 
 # Save high scores
-def save_scores():
+def save_scores():    
     # fetch scores
+    global totalGuesses
+    s_count, ss = fetch_scores()
     # include new score
+    username = "xxxx"
+    while len(username) > 3:
+        username = input("Please enter a 3 letter name for your score to be recorded.")
+    tempArr = list(username)
+    tempArr.append(totalGuesses)
+    ss.append(tempArr)
     # sort
+    for i in range(len(ss)-1):
+        for j in range(len(ss)- i - 1):
+            if ss[j][3] > ss[j+1][3]:
+                tempArr = ss[j]
+                ss[j] = ss[j+1]
+                ss[j+1] = tempArr
+
     # update total amount of scores
+    s_count += 1
     # write new scores
+    eeprom.clear(2048)
+    eeprom.write_block(0,[s_count,0,0,0])
+    for i in range(len(ss)):
+        ss[i][0] = ord(ss[i][0])
+        ss[i][1] = ord(ss[i][1])
+        ss[i][2] = ord(ss[i][2])
+        eeprom.write_block(i+1,ss[i])
+    menu()
     pass
 
 
@@ -170,7 +208,6 @@ def btn_guess_pressed(channel):
         pass
 
     buttonTime = time.time() - start_time
-    print(buttonTime)
 
     if 0.05 < buttonTime < 0.35:
         comparedValue = abs(value-guessVal)	
@@ -180,6 +217,7 @@ def btn_guess_pressed(channel):
             pwmLED.ChangeDutyCycle(0)
             print("You have guessed correctly and won the game!")
             print("It only took you ", totalGuesses, " guesses!")
+            save_scores()
         else: 
             accuracy_leds()
             trigger_buzzer()
