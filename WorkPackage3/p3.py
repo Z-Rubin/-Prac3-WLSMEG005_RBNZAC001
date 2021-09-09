@@ -3,12 +3,15 @@ import RPi.GPIO as GPIO
 import random
 import ES2EEPROMUtils
 import os
+import time
 
 # some global variables that need to change as we run the program
 end_of_game = None  # set if the user wins or ends the game
-value = None
-compareValue = None
+value = 0
+compareValue = 0
 sleepTime = 0
+guessVal = 0
+totalGuesses = 0
 
 # DEFINE THE PINS USED HERE
 LED_value = [11, 13, 15]
@@ -49,6 +52,7 @@ def menu():
         print("Use the buttons on the Pi to make and submit your guess!")
         print("Press and hold the guess button to cancel your game")
         value = generate_number()
+        totalGuesses = 0
         print(value)
         while not end_of_game:
             pass
@@ -81,17 +85,18 @@ def setup():
     pwmLED.start(0)
  
     pwm = GPIO.PWM(buzzer, 1)
-    pwm.start(50)
+    pwm.start(0)
+    pwm.ChangeDutyCycle(0)
     # Setup debouncing and callbacks
     GPIO.setup(btn_increase,GPIO.IN,pull_up_down=GPIO.PUD_UP)
     GPIO.setup(btn_submit,GPIO.IN,pull_up_down=GPIO.PUD_UP)
 
-    GPIO.add_event_detect(btn_increase, GPIO.BOTH,
+    GPIO.add_event_detect(btn_increase, GPIO.FALLING,
                           callback=btn_increase_pressed,
-                          bouncetime=200)
-    GPIO.add_event_detect(btn_submit, GPIO.BOTH,
+                          bouncetime=400)
+    GPIO.add_event_detect(btn_submit, GPIO.FALLING,
                           callback=btn_guess_pressed,
-                          bouncetime=200)
+                          bouncetime=400)
 
     pass
 
@@ -128,6 +133,7 @@ def btn_increase_pressed(channel):
     # Increase the value shown on the LEDs
     # You can choose to have a global variable store the user's current guess, 
     # or just pull the value off the LEDs when a user makes a guess
+    global guessVal
     guessVal =  0
     if GPIO.input(11):
         guessVal = guessVal + 1
@@ -145,8 +151,6 @@ def btn_increase_pressed(channel):
     GPIO.output(11,int(binVal[2]))
     GPIO.output(13,int(binVal[1]))
     GPIO.output(15,int(binVal[0]))
-    print(value)
-
     pass
 
 
@@ -155,17 +159,34 @@ def btn_guess_pressed(channel):
     # If they've pressed and held the button, clear up the GPIO and take them back to the menu screen
     # Compare the actual value with the user value displayed on the LEDs
     global comparedValue
-    guessVal =  0
-    if GPIO.input(11):
-        guessVal = guessVal + 1
-    if GPIO.input(13):
-        guessVal = guessVal + 2
-    if GPIO.input(15):
-        guessVal = guessVal + 4
-    comparedValue = abs(value-guessVal)	
-    print(comparedValue)  
-    accuracy_leds()
-    trigger_buzzer()
+    global guessVal
+    global pwm
+    global pwmLED
+    global totalGuesses
+    
+    start_time = time.time()
+
+    while GPIO.input(channel) == 0: # Wait for the button up
+        pass
+
+    buttonTime = time.time() - start_time
+    print(buttonTime)
+
+    if 0.05 < buttonTime < 0.35:
+        comparedValue = abs(value-guessVal)	
+        totalGuesses += 1
+        if comparedValue == 0:
+            pwm.ChangeDutyCycle(0)
+            pwmLED.ChangeDutyCycle(0)
+            print("You have guessed correctly and won the game!")
+            print("It only took you ", totalGuesses, " guesses!")
+        else: 
+            accuracy_leds()
+            trigger_buzzer()
+    else:
+        GPIO.output([11,13,15,buzzer,LED_accuracy],0)
+        pwm.ChangeDutyCycle(0)
+        pwmLED.ChangeDutyCycle(0)
     # Change the PWM LED
     # if it's close enough, adjust the buzzer
     # if it's an exact guess:
@@ -187,7 +208,11 @@ def accuracy_leds():
     global comparedValue
     global value
     global pwmLED
-    brightness = 1-(value-comparedValue)/value    
+    global guessVal
+    if guessVal < value:
+        brightness = guessVal/value
+    else:
+        brightness = (8-guessVal)/(8-value)
     pwmLED.ChangeDutyCycle(round(brightness*100))
     pass
 
@@ -195,7 +220,20 @@ def accuracy_leds():
 def trigger_buzzer():
     global pwm
     global comparedValue
-    pwm.ChangeFrequency(1)
+    dutyCycle = 50
+    freq = 1
+    if comparedValue == 3:
+        freq = 1
+    else:
+        if comparedValue == 2:
+            freq = 2
+        else:
+            if comparedValue == 1:
+                freq = 4
+            else:
+                dutyCycle = 0
+    pwm.ChangeDutyCycle(dutyCycle)
+    pwm.ChangeFrequency(freq)
     # The buzzer operates differently from the LED
     # While we want the brightness of the LED to change(duty cycle), we want the frequency of the buzzer to change
     # The buzzer duty cycle should be left at 50%
